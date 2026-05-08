@@ -37,13 +37,29 @@ import {
 import { localDayKey } from '@/utils/dateKey';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
+async function readBlobFromUri(localUri: string): Promise<Blob> {
+  try {
+    const response = await fetch(localUri);
+    return await response.blob();
+  } catch {
+    // iOS can return URIs that fail with fetch(); XHR blob read is more resilient there.
+    return await new Promise<Blob>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.onerror = () => reject(new Error('Unable to read local video file.'));
+      xhr.onload = () => resolve(xhr.response as Blob);
+      xhr.responseType = 'blob';
+      xhr.open('GET', localUri, true);
+      xhr.send(null);
+    });
+  }
+}
+
 async function readLocalVideoForUpload(localUri: string): Promise<{
   blob: Blob;
   ext: string;
   contentType: string;
 }> {
-  const response = await fetch(localUri);
-  const blob = await response.blob();
+  const blob = await readBlobFromUri(localUri);
   const lower = localUri.toLowerCase().split('?')[0] ?? '';
   const t = (blob.type || '').toLowerCase();
 
@@ -51,10 +67,15 @@ async function readLocalVideoForUpload(localUri: string): Promise<{
     'video/quicktime': 'mov',
     'video/mp4': 'mp4',
     'video/x-m4v': 'm4v',
+    'video/hevc': 'hevc',
+    'video/h265': 'hevc',
+    'video/h264': 'mp4',
     'video/3gpp': '3gp',
     'video/3gpp2': '3g2',
     'video/webm': 'webm',
     'video/x-matroska': 'mkv',
+    'video/mp2t': 'ts',
+    'video/vnd.dlna.mpeg-tts': 'ts',
     'video/mpeg': 'mpeg',
     'video/ogg': 'ogv',
     'video/x-msvideo': 'avi',
@@ -63,10 +84,14 @@ async function readLocalVideoForUpload(localUri: string): Promise<{
     mov: 'video/quicktime',
     mp4: 'video/mp4',
     m4v: 'video/x-m4v',
+    hevc: 'video/hevc',
     '3gp': 'video/3gpp',
     '3g2': 'video/3gpp2',
     webm: 'video/webm',
     mkv: 'video/x-matroska',
+    ts: 'video/mp2t',
+    mts: 'video/mp2t',
+    m2ts: 'video/mp2t',
     mpeg: 'video/mpeg',
     mpg: 'video/mpeg',
     ogv: 'video/ogg',
@@ -78,7 +103,7 @@ async function readLocalVideoForUpload(localUri: string): Promise<{
   const mappedByMime = mimeToExt[t];
 
   const ext =
-    uriExt && ['mov', 'mp4', 'm4v', '3gp', '3g2', 'webm', 'mkv', 'mpeg', 'mpg', 'ogv', 'avi'].includes(uriExt)
+    uriExt && ['mov', 'mp4', 'm4v', 'hevc', '3gp', '3g2', 'webm', 'mkv', 'ts', 'mts', 'm2ts', 'mpeg', 'mpg', 'ogv', 'avi'].includes(uriExt)
       ? uriExt
       : mappedByMime ?? 'mp4';
   const contentType = t.startsWith('video/') ? t : extToMime[ext] ?? 'video/mp4';
