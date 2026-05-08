@@ -1,0 +1,152 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.auth.uid == uid;
+      allow delete: if false;
+    }
+
+    match /usernames/{name} {
+      allow read: if true;
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if signedIn() && resource.data.uid == request.auth.uid;
+      allow update: if false;
+    }
+
+    match /groups/{gid} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && request.auth.uid in request.resource.data.memberIds
+        && request.resource.data.ownerId == request.auth.uid;
+      allow update: if signedIn() && (
+        request.auth.uid in resource.data.memberIds
+        || (
+          request.resource.data.memberIds.size() > resource.data.memberIds.size()
+          && request.resource.data.memberIds.hasAll(resource.data.memberIds)
+          && request.auth.uid in request.resource.data.memberIds
+        )
+      );
+
+      function groupMember() {
+        return signedIn()
+          && exists(/databases/$(database)/documents/groups/$(gid))
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+      }
+
+      function groupData() {
+        return get(/databases/$(database)/documents/groups/$(gid)).data;
+      }
+
+      match /members/{mid} {
+        allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+        allow write: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+      }
+
+      match /days/{dayId} {
+        allow read: if groupMember();
+
+        // Created by ensureTodayDay transaction (member, valid assignee from rotation).
+        allow create: if groupMember()
+          && dayId == request.resource.data.dayKey
+          && request.resource.data.assigneeUserId is string
+          && request.resource.data.assigneeUserId in groupData().memberIds
+          && request.resource.data.sideQuestStatus == 'open'
+          && request.resource.data.questId is string
+          && request.resource.data.dayKey is string;
+
+        // Assignee only may submit proof (open → voting). Members (not assignee) may record votes.
+        allow update: if groupMember() && (
+          (
+            request.auth.uid == resource.data.assigneeUserId
+            && resource.data.sideQuestStatus == 'open'
+            && request.resource.data.sideQuestStatus == 'voting'
+            && resource.data.proofVideoUrl == null
+            && request.resource.data.proofVideoUrl is string
+            && request.resource.data.assigneeUserId == resource.data.assigneeUserId
+            && request.resource.data.dayKey == resource.data.dayKey
+            && request.resource.data.questId == resource.data.questId
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['proofVideoUrl', 'sideQuestStatus', 'votes'])
+            && request.resource.data.votes.size() == 0
+          )
+          || (
+            resource.data.sideQuestStatus == 'voting'
+            && request.resource.data.sideQuestStatus == 'voting'
+            && request.auth.uid != resource.data.assigneeUserId
+            && request.resource.data.assigneeUserId == resource.data.assigneeUserId
+            && request.resource.data.proofVideoUrl == resource.data.proofVideoUrl
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes'])
+            && request.resource.data.votes.keys().hasAll(resource.data.votes.keys())
+          )
+          || (
+            resource.data.sideQuestStatus == 'voting'
+            && request.resource.data.sideQuestStatus == 'resolved'
+            && request.auth.uid != resource.data.assigneeUserId
+            && request.resource.data.assigneeUserId == resource.data.assigneeUserId
+            && request.resource.data.proofVideoUrl == resource.data.proofVideoUrl
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['votes', 'sideQuestStatus', 'resolution'])
+            && (request.resource.data.resolution == 'passed' || request.resource.data.resolution == 'failed')
+            && request.resource.data.votes.keys().hasAll(resource.data.votes.keys())
+          )
+        );
+
+        allow delete: if false;
+      }
+
+      match /messages/{mid} {
+        allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+        // Text-only: text not empty. GIF: optional gifUrl must be HTTPS on giphy.com; text may be empty for GIF-only or caption when combined.
+        allow create: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.text is string
+          && request.resource.data.text.size() <= 2000
+          && (
+            (!request.resource.data.keys().hasAny(['gifUrl']) && request.resource.data.text.size() > 0)
+            || (
+              request.resource.data.keys().hasAny(['gifUrl'])
+              && request.resource.data.gifUrl is string
+              && request.resource.data.gifUrl.size() >= 10
+              && request.resource.data.gifUrl.size() < 2048
+              && request.resource.data.gifUrl.matches('^https://.*giphy\\.com/.*')
+            )
+          );
+        // Only the author may edit; text / updatedAt only; gifUrl column unchanged if present.
+        allow update: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds
+          && resource.data.userId == request.auth.uid
+          && request.resource.data.userId == resource.data.userId
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'updatedAt'])
+          && (
+            !resource.data.keys().hasAny(['gifUrl'])
+            || request.resource.data.gifUrl == resource.data.gifUrl
+          );
+        allow delete: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds
+          && resource.data.userId == request.auth.uid;
+      }
+
+      match /vlogs/{vid} {
+        allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+        allow create: if signedIn()
+          && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds
+          && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if false;
+      }
+
+      match /stats/{sid} {
+        allow read: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+        allow write: if signedIn() && request.auth.uid in get(/databases/$(database)/documents/groups/$(gid)).data.memberIds;
+      }
+    }
+  }
+}

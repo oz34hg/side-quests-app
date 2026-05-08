@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "vlogs",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "dayKey", "order": "ASCENDING" },
+        { "fieldPath": "createdAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
