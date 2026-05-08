@@ -44,18 +44,46 @@ async function readLocalVideoForUpload(localUri: string): Promise<{
 }> {
   const response = await fetch(localUri);
   const blob = await response.blob();
-  const lower = localUri.toLowerCase();
-  const t = blob.type || '';
-  if (t.includes('quicktime') || lower.endsWith('.mov')) {
-    return { blob, ext: 'mov', contentType: 'video/quicktime' };
-  }
-  if (t.includes('webm') || lower.endsWith('.webm')) {
-    return { blob, ext: 'webm', contentType: 'video/webm' };
-  }
-  if (t.startsWith('video/')) {
-    return { blob, ext: 'mp4', contentType: t };
-  }
-  return { blob, ext: 'mp4', contentType: 'video/mp4' };
+  const lower = localUri.toLowerCase().split('?')[0] ?? '';
+  const t = (blob.type || '').toLowerCase();
+
+  const mimeToExt: Record<string, string> = {
+    'video/quicktime': 'mov',
+    'video/mp4': 'mp4',
+    'video/x-m4v': 'm4v',
+    'video/3gpp': '3gp',
+    'video/3gpp2': '3g2',
+    'video/webm': 'webm',
+    'video/x-matroska': 'mkv',
+    'video/mpeg': 'mpeg',
+    'video/ogg': 'ogv',
+    'video/x-msvideo': 'avi',
+  };
+  const extToMime: Record<string, string> = {
+    mov: 'video/quicktime',
+    mp4: 'video/mp4',
+    m4v: 'video/x-m4v',
+    '3gp': 'video/3gpp',
+    '3g2': 'video/3gpp2',
+    webm: 'video/webm',
+    mkv: 'video/x-matroska',
+    mpeg: 'video/mpeg',
+    mpg: 'video/mpeg',
+    ogv: 'video/ogg',
+    avi: 'video/x-msvideo',
+  };
+
+  const uriExtMatch = lower.match(/\.([a-z0-9]{2,5})$/i);
+  const uriExt = uriExtMatch?.[1];
+  const mappedByMime = mimeToExt[t];
+
+  const ext =
+    uriExt && ['mov', 'mp4', 'm4v', '3gp', '3g2', 'webm', 'mkv', 'mpeg', 'mpg', 'ogv', 'avi'].includes(uriExt)
+      ? uriExt
+      : mappedByMime ?? 'mp4';
+  const contentType = t.startsWith('video/') ? t : extToMime[ext] ?? 'video/mp4';
+
+  return { blob, ext, contentType };
 }
 
 /** Pre–per-uid installs only; migrated into {@link ACTIVE_GROUP_BY_UID_KEY} once per user. */

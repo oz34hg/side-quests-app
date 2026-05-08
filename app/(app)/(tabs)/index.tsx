@@ -261,6 +261,7 @@ export default function TodayScreen() {
                 <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                   <Text style={styles.panelTitle}>Your side quest (optional)</Text>
                   <Text style={styles.panelText}>Record proof so the squad can vote.</Text>
+                  <Text style={styles.videoConstraint}>Minimum clip length: 1 minute.</Text>
                   <PressableScale style={[styles.primaryBtn, busy && styles.btnDisabled]} disabled={busy} onPress={recordQuestProof}>
                     <Text style={styles.primaryBtnText}>Record proof</Text>
                   </PressableScale>
@@ -371,6 +372,7 @@ export default function TodayScreen() {
             contentContainerStyle={styles.modalScrollContent}
             keyboardShouldPersistTaps="handled">
             <Animated.View entering={FadeIn.duration(380)}>
+              <Text style={styles.videoConstraint}>Minimum clip length: 1 minute.</Text>
               <PressableScale
                 style={[styles.primaryBtn, busy && styles.btnDisabled]}
                 disabled={busy}
@@ -597,6 +599,7 @@ const styles = StyleSheet.create({
   },
   panelTitle: { color: Mocha.blue, fontSize: 16, fontWeight: '700' },
   panelText: { color: Mocha.fg2, fontSize: 14, lineHeight: 20 },
+  videoConstraint: { color: Mocha.fg4, fontSize: 12, marginTop: -2 },
   primaryBtn: {
     backgroundColor: Mocha.blue,
     paddingVertical: 14,
