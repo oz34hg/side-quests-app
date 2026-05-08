@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 import { useAuth } from '@/context/AuthContext';
-import { isFirebaseConfigured, storage } from '@/lib/firebase';
+import { db, isFirebaseConfigured, storage } from '@/lib/firebase';
 import {
   addVlogEntry,
   castSideQuestVote,
@@ -13,6 +14,7 @@ import {
   startGroupRotation,
   submitSideQuestProofUrl,
   sendChatMessage,
+  purchaseStoreItem as purchaseStoreItemFirestore,
   deleteChatMessage as deleteChatMessageFirestore,
   updateChatMessage as updateChatMessageFirestore,
   subscribeDay,
@@ -86,6 +88,7 @@ type GroupContextValue = {
   updateGroupAppearance: (patch: GroupAppearancePatch) => Promise<void>;
   uploadGroupChatIcon: (localUri: string) => Promise<void>;
   uploadChatWallpaper: (localUri: string) => Promise<void>;
+  purchaseStoreItem: (itemId: string, cost: number, kind: 'bubbleEffect' | 'chatAnimation' | 'profileFrame') => Promise<void>;
 };
 
 const GroupContext = createContext<GroupContextValue | null>(null);
@@ -143,6 +146,15 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
             await AsyncStorage.removeItem(LEGACY_ACTIVE_GROUP_KEY);
           }
         }
+        if (!id && db) {
+          const userSnap = await getDoc(doc(db, 'users', uid));
+          const cloudId = userSnap.exists() ? (userSnap.data() as { lastActiveGroupId?: unknown }).lastActiveGroupId : null;
+          if (typeof cloudId === 'string' && cloudId.trim()) {
+            id = cloudId.trim();
+            map = { ...map, [uid]: id };
+            await AsyncStorage.setItem(ACTIVE_GROUP_BY_UID_KEY, JSON.stringify(map));
+          }
+        }
 
         if (!cancelled) {
           setActiveGroupIdState(id);
@@ -175,6 +187,9 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
           map = next;
         }
         await AsyncStorage.setItem(ACTIVE_GROUP_BY_UID_KEY, JSON.stringify(map));
+        if (db) {
+          await setDoc(doc(db, 'users', uid), { lastActiveGroupId: id ?? null }, { merge: true });
+        }
       } catch {
         // UI already reflects `id`; storage may retry on next setActiveGroup.
       }
@@ -376,6 +391,20 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
     [activeGroupId],
   );
 
+  const purchaseStoreItem = useCallback(
+    async (itemId: string, cost: number, kind: 'bubbleEffect' | 'chatAnimation' | 'profileFrame') => {
+      if (!activeGroupId || !user) throw new Error('Join a group first.');
+      await purchaseStoreItemFirestore({
+        groupId: activeGroupId,
+        userId: user.uid,
+        itemId,
+        cost,
+        kind,
+      });
+    },
+    [activeGroupId, user],
+  );
+
   const bumpDayKey = useCallback(() => {
     setDayKey(localDayKey());
   }, []);
@@ -409,6 +438,7 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
       updateGroupAppearance,
       uploadGroupChatIcon,
       uploadChatWallpaper,
+      purchaseStoreItem,
     }),
     [
       activeGroupId,
@@ -436,6 +466,7 @@ export function GroupProvider({ children }: { children: React.ReactNode }) {
       updateGroupAppearance,
       uploadGroupChatIcon,
       uploadChatWallpaper,
+      purchaseStoreItem,
     ],
   );
 

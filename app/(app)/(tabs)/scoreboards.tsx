@@ -1,9 +1,13 @@
 import { useMemo } from 'react';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { EmptyState } from '@/components/ui/empty-state';
 import { ScreenEnter } from '@/components/screen-enter';
 import { Mocha } from '@/constants/mocha';
+import { useAppTheme } from '@/context/AppThemeContext';
 import { useGroup } from '@/context/GroupContext';
 
 function statScore(
@@ -58,6 +62,8 @@ function Board({
 }
 
 export default function ScoreboardsScreen() {
+  const { theme } = useAppTheme();
+  const tabBarHeight = useBottomTabBarHeight();
   const { activeGroupId, stats, members } = useGroup();
 
   const byMessages = useMemo(() => rankRows(stats, members, 'messagesSent'), [stats, members]);
@@ -71,8 +77,14 @@ export default function ScoreboardsScreen() {
   if (!activeGroupId) {
     return (
       <ScreenEnter>
-        <SafeAreaView style={styles.root} edges={['top']}>
-          <Text style={styles.muted}>Join or create a group first.</Text>
+        <SafeAreaView style={[styles.root, { backgroundColor: theme.background }]} edges={['top']}>
+          <View style={styles.emptyWrap}>
+            <EmptyState
+              icon="leaderboard"
+              title="No scoreboard yet"
+              description="Join or create a group to start tracking rankings."
+            />
+          </View>
         </SafeAreaView>
       </ScreenEnter>
     );
@@ -80,9 +92,16 @@ export default function ScoreboardsScreen() {
 
   return (
     <ScreenEnter>
-      <SafeAreaView style={styles.root} edges={['top']}>
-        <Text style={styles.header}>Scoreboards</Text>
-        <ScrollView contentContainerStyle={styles.scrollCol} showsVerticalScrollIndicator={false}>
+      <SafeAreaView style={[styles.root, { backgroundColor: theme.background }]} edges={['top']}>
+        <View style={styles.headerWrap}>
+          <BlurView tint="dark" intensity={40} style={styles.headerBlur} />
+          <Text allowFontScaling={false} style={styles.header}>
+            Scoreboards
+          </Text>
+        </View>
+        <ScrollView
+          contentContainerStyle={[styles.scrollCol, { paddingBottom: tabBarHeight + 20 }]}
+          showsVerticalScrollIndicator={false}>
           <Board title="Messages" rows={byMessages} color={Mocha.aqua} />
           <Board title="Quest points" rows={byQuestPoints} color={Mocha.rosewater} />
           <Board title="Side quests" rows={byQuests} color={Mocha.purple} />
@@ -95,15 +114,23 @@ export default function ScoreboardsScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Mocha.bg0_h },
+  headerWrap: {
+    overflow: 'hidden',
+    backgroundColor: 'rgba(16,16,22,0.28)',
+    borderBottomWidth: 0.5,
+    borderBottomColor: `${Mocha.bg3}AA`,
+  },
+  headerBlur: { ...StyleSheet.absoluteFillObject },
   header: {
     fontSize: 24,
     fontWeight: '800',
     color: Mocha.rosewater,
     paddingHorizontal: 16,
     paddingBottom: 10,
-    letterSpacing: 0.2,
+    letterSpacing: -0.5,
   },
   muted: { color: Mocha.fg4, padding: 16 },
+  emptyWrap: { paddingHorizontal: 16, paddingTop: 24 },
   scrollCol: {
     paddingHorizontal: 12,
     paddingBottom: 32,

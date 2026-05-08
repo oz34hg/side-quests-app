@@ -1,7 +1,6 @@
 import { Link, Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,11 +13,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CozyEnter } from '@/components/cozy-enter';
+import { PressableScale } from '@/components/pressable-scale';
+import { Typography } from '@/constants/design';
 import { Mocha } from '@/constants/mocha';
+import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import { isFirebaseConfigured } from '@/lib/firebase';
+import { hapticSuccess } from '@/utils/haptics';
 
 export default function SignupScreen() {
+  const { theme } = useAppTheme();
+  const { showToast } = useToast();
   const { ready, user, needsUsername, signUpEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,15 +43,16 @@ export default function SignupScreen() {
     setBusy(true);
     try {
       await signUpEmail(email, password, username);
+      void hapticSuccess();
     } catch (e) {
-      Alert.alert('Sign up', e instanceof Error ? e.message : 'Failed');
+      showToast({ title: 'Sign up failed', message: e instanceof Error ? e.message : 'Failed', tone: 'error' });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -55,14 +62,16 @@ export default function SignupScreen() {
           showsVerticalScrollIndicator={false}>
           <CozyEnter delay={40}>
             <View style={styles.formBlock}>
-              <Text style={styles.title}>Create account</Text>
-              <Text style={styles.sub}>
+              <Text allowFontScaling={false} style={[styles.title, { color: theme.text }]}>
+                Create account
+              </Text>
+              <Text style={[styles.sub, { color: theme.muted }]}>
                 Unique username (letters, numbers, underscore). 3–20 chars.
               </Text>
               <TextInput
                 style={styles.input}
                 placeholder="Username"
-                placeholderTextColor={Mocha.fg4}
+                placeholderTextColor={theme.muted}
                 autoCapitalize="none"
                 value={username}
                 onChangeText={setUsername}
@@ -70,7 +79,7 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor={Mocha.fg4}
+                placeholderTextColor={theme.muted}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={email}
@@ -79,17 +88,17 @@ export default function SignupScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Password (6+ chars)"
-                placeholderTextColor={Mocha.fg4}
+                placeholderTextColor={theme.muted}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
               />
-              <Pressable style={[styles.btn, busy && styles.disabled]} disabled={busy} onPress={onSubmit}>
+              <PressableScale style={[styles.btn, { backgroundColor: theme.primary }, busy && styles.disabled]} disabled={busy} onPress={onSubmit}>
                 <Text style={styles.btnText}>{busy ? '…' : 'Sign up'}</Text>
-              </Pressable>
+              </PressableScale>
               <Link href="/(auth)/login" asChild>
                 <Pressable style={styles.linkWrap}>
-                  <Text style={styles.link}>Already have an account</Text>
+                  <Text style={[styles.link, { color: theme.primary }]}>Already have an account</Text>
                 </Pressable>
               </Link>
             </View>
@@ -121,9 +130,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Mocha.rosewater,
     textAlign: 'center',
-    letterSpacing: 0.2,
+    letterSpacing: -0.5,
   },
-  sub: { color: Mocha.fg3, marginBottom: 2, textAlign: 'center', lineHeight: 22 },
+  sub: { ...Typography.body, color: Mocha.fg3, marginBottom: 2, textAlign: 'center' },
   input: {
     backgroundColor: Mocha.bg1,
     borderRadius: 14,

@@ -1,9 +1,9 @@
 import { MaterialIcons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
-import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
 import { Image } from 'expo-image';
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { BlurView } from 'expo-blur';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -21,14 +21,23 @@ import {
   View,
 } from 'react-native';
 import Animated, { FadeIn } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { doc, getDoc } from 'firebase/firestore';
+import { RectButton, Swipeable } from 'react-native-gesture-handler';
 
 import { GiphyPicker } from '@/components/giphy-picker';
 import { PressableScale } from '@/components/pressable-scale';
 import { ScreenEnter } from '@/components/screen-enter';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Space, Typography } from '@/constants/design';
 import { Mocha } from '@/constants/mocha';
 import { useAuth } from '@/context/AuthContext';
+import { useAppTheme } from '@/context/AppThemeContext';
 import { useGroup } from '@/context/GroupContext';
+import { useToast } from '@/context/ToastContext';
+import { db } from '@/lib/firebase';
+import { hapticSelection, hapticSuccess } from '@/utils/haptics';
 
 const CHAT_DEFAULT_BG = Mocha.bg0_h;
 const BG_PRESETS = [
@@ -53,21 +62,29 @@ type Row = {
   showMeta: boolean;
 };
 
-function notify(title: string, message: string) {
-  if (Platform.OS === 'web') {
-    window.alert(`${title}\n\n${message}`);
-  } else {
-    Alert.alert(title, message);
-  }
-}
-
 const MENU_WIDTH = 200;
 const MENU_ROW_HEIGHT = 48;
 
 type MessageMenuAnchor = { id: string; x: number; y: number; w: number; h: number };
+type UserMiniProfile = {
+  uid: string;
+  username?: string;
+  displayName?: string;
+  photoURL?: string | null;
+  aboutMe?: string;
+  pronouns?: string;
+  badges?: string[];
+  equippedBubbleEffect?: string | null;
+  equippedChatAnimation?: string | null;
+  equippedProfileFrame?: string | null;
+};
 
 export default function ChatScreen() {
-  const { user } = useAuth();
+  const { theme } = useAppTheme();
+  const { showToast } = useToast();
+  const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
+  const { user, profile } = useAuth();
   const {
     activeGroupId,
     group,
@@ -89,7 +106,19 @@ export default function ChatScreen() {
   const [editOpen, setEditOpen] = useState<{ id: string } | null>(null);
   const [editDraft, setEditDraft] = useState('');
   const [giphyOpen, setGiphyOpen] = useState(false);
+  const [groupHubOpen, setGroupHubOpen] = useState(false);
+  const [groupHubBusy, setGroupHubBusy] = useState(false);
+  const [memberProfiles, setMemberProfiles] = useState<UserMiniProfile[]>([]);
+  const [selectedMember, setSelectedMember] = useState<UserMiniProfile | null>(null);
+  const [fxBurst, setFxBurst] = useState<'confetti' | 'fireworks' | null>(null);
+  const [bubbleFxByUid, setBubbleFxByUid] = useState<Record<string, string | null>>({});
   const menuAnchorRefs = useRef<Record<string, View | null>>({});
+  const notify = useCallback(
+    (title: string, message: string, tone: 'info' | 'success' | 'error' = 'error') => {
+      showToast({ title, message, tone });
+    },
+    [showToast],
+  );
 
   const rows: Row[] = useMemo(
     () =>
@@ -127,15 +156,13 @@ export default function ChatScreen() {
         setBusy(false);
       }
     },
-    [postMessage, text],
+    [notify, postMessage, text],
   );
 
   const closeMessageMenu = useCallback(() => setMessageMenu(null), []);
 
   const openMessageMenu = useCallback((item: Row) => {
-    if (Platform.OS === 'ios') {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    }
+    void hapticSelection();
     const node = menuAnchorRefs.current[item.id];
     node?.measureInWindow((x, y, w, h) => {
       setMessageMenu({ id: item.id, x, y, w, h });
@@ -172,14 +199,22 @@ export default function ChatScreen() {
       closeMessageMenu();
       try {
         await Clipboard.setStringAsync(body);
-        if (Platform.OS === 'web') {
-          notify('Copied', 'Message copied to clipboard.');
-        }
+        notify('Copied', 'Message copied to clipboard.', 'success');
       } catch (e) {
         notify('Copy', e instanceof Error ? e.message : 'Failed');
       }
     },
-    [closeMessageMenu, messageCopyPayload],
+    [closeMessageMenu, messageCopyPayload, notify],
+  );
+
+  const renderSwipeAction = useCallback(
+    (id: string) => (
+      <RectButton style={styles.swipeAction} onPress={() => void onCopyMessage(id)}>
+        <MaterialIcons name="content-copy" size={18} color={Mocha.fg0} />
+        <Text style={styles.swipeActionText}>Copy</Text>
+      </RectButton>
+    ),
+    [onCopyMessage],
   );
 
   const onEditMessage = useCallback(
@@ -205,7 +240,7 @@ export default function ChatScreen() {
     } finally {
       setBusy(false);
     }
-  }, [editDraft, editOpen, updateChatMessage]);
+  }, [editDraft, editOpen, notify, updateChatMessage]);
 
   const confirmDeleteMessage = useCallback(
     (id: string) => {
@@ -233,7 +268,7 @@ export default function ChatScreen() {
         { text: 'Delete', style: 'destructive', onPress: run },
       ]);
     },
-    [closeMessageMenu, deleteChatMessage],
+    [closeMessageMenu, deleteChatMessage, notify],
   );
 
   const openSettings = useCallback(() => {
@@ -309,12 +344,80 @@ export default function ChatScreen() {
     setBusy(true);
     try {
       await updateGroupAppearance({ name: n });
+      void hapticSuccess();
+      notify('Saved', 'Group name updated.', 'success');
     } catch (e) {
       notify('Name', e instanceof Error ? e.message : 'Failed');
     } finally {
       setBusy(false);
     }
   };
+
+  const openGroupHub = useCallback(async () => {
+    setGroupHubOpen(true);
+    if (!db || !group?.memberIds?.length) return;
+    setGroupHubBusy(true);
+    try {
+      const docs = await Promise.all(
+        group.memberIds.map(async (uid) => {
+          const snap = await getDoc(doc(db, 'users', uid));
+          const d = snap.exists() ? (snap.data() as Record<string, unknown>) : {};
+          return {
+            uid,
+            username: typeof d.username === 'string' ? d.username : members.get(uid)?.username ?? uid.slice(0, 6),
+            displayName: typeof d.displayName === 'string' ? d.displayName : undefined,
+            photoURL: typeof d.photoURL === 'string' ? d.photoURL : null,
+            aboutMe: typeof d.aboutMe === 'string' ? d.aboutMe : '',
+            pronouns: typeof d.pronouns === 'string' ? d.pronouns : '',
+            badges: Array.isArray(d.badges) ? (d.badges as string[]) : [],
+            equippedBubbleEffect:
+              typeof d.equippedBubbleEffect === 'string' ? d.equippedBubbleEffect : null,
+            equippedChatAnimation:
+              typeof d.equippedChatAnimation === 'string' ? d.equippedChatAnimation : null,
+            equippedProfileFrame:
+              typeof d.equippedProfileFrame === 'string' ? d.equippedProfileFrame : null,
+          } as UserMiniProfile;
+        }),
+      );
+      setMemberProfiles(docs);
+    } finally {
+      setGroupHubBusy(false);
+    }
+  }, [group?.memberIds, members]);
+
+  const triggerChatFx = useCallback(() => {
+    const equipped = profile?.equippedChatAnimation ?? '';
+    if (!equipped) {
+      notify('Store', 'Equip a chat animation from the Store tab first.');
+      return;
+    }
+    if (equipped === 'chat_fireworks') setFxBurst('fireworks');
+    else setFxBurst('confetti');
+    setTimeout(() => setFxBurst(null), 1300);
+  }, [notify, profile?.equippedChatAnimation]);
+
+  useEffect(() => {
+    if (!db || !group?.memberIds?.length) {
+      setBubbleFxByUid({});
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const rows = await Promise.all(
+        group.memberIds.map(async (uid) => {
+          const snap = await getDoc(doc(db, 'users', uid));
+          const d = snap.exists() ? (snap.data() as Record<string, unknown>) : {};
+          return [uid, typeof d.equippedBubbleEffect === 'string' ? d.equippedBubbleEffect : null] as const;
+        }),
+      );
+      if (!cancelled) {
+        setBubbleFxByUid(Object.fromEntries(rows));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [group?.memberIds]);
 
   const solidBg =
     group?.chatBackgroundColor && /^#[0-9A-Fa-f]{6}$/i.test(group.chatBackgroundColor)
@@ -339,7 +442,13 @@ export default function ChatScreen() {
     return (
       <ScreenEnter>
         <SafeAreaView style={styles.root} edges={['top']}>
-          <Text style={styles.muted}>Join or create a group first (Group tab).</Text>
+          <View style={styles.emptyWrap}>
+            <EmptyState
+              icon="forum"
+              title="No group chat yet"
+              description="Join or create a group to start chatting with your squad."
+            />
+          </View>
         </SafeAreaView>
       </ScreenEnter>
     );
@@ -361,20 +470,72 @@ export default function ChatScreen() {
           const m = members.get(item.userId);
           const who = m?.username ?? item.userId.slice(0, 6);
           return (
+            <Swipeable
+              friction={1.8}
+              rightThreshold={32}
+              overshootRight={false}
+              renderRightActions={() => renderSwipeAction(item.id)}>
             <View style={[styles.rowWrap, mine ? styles.rowMine : styles.rowTheirs]}>
               {!mine && item.showMeta ? (
                 <Text style={styles.metaName} numberOfLines={1}>
                   {who}
                 </Text>
               ) : null}
-              {mine ? (
-                <View style={styles.mineBubbleRow}>
+              {(() => {
+                const bubbleFx = mine ? profile?.equippedBubbleEffect ?? null : bubbleFxByUid[item.userId] ?? null;
+                const fxStyle = bubbleFx === 'bubble_neon' ? styles.bubbleNeon : bubbleFx === 'bubble_sparkle' ? styles.bubbleSparkle : null;
+                return mine ? (
+                  <View style={styles.mineBubbleRow}>
+                    <View
+                      style={[
+                        styles.bubble,
+                        styles.bubbleMine,
+                        fxStyle,
+                        item.gifUrl ? styles.bubbleGifShell : styles.bubbleTextPad,
+                        item.gifUrl ? styles.bubbleAlignEnd : null,
+                      ]}>
+                      {item.gifUrl ? (
+                        <Image
+                          source={{ uri: item.gifUrl }}
+                          style={styles.bubbleGif}
+                          contentFit="contain"
+                          accessibilityLabel="GIF"
+                        />
+                      ) : null}
+                      {item.text ? (
+                        <Text
+                          style={[
+                            styles.bubbleText,
+                            styles.bubbleTextMine,
+                            Boolean(item.gifUrl) && styles.bubbleCaption,
+                          ]}>
+                          {item.text}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <View
+                      collapsable={false}
+                      ref={(r) => {
+                        if (r) menuAnchorRefs.current[item.id] = r;
+                        else delete menuAnchorRefs.current[item.id];
+                      }}>
+                      <Pressable
+                        style={styles.messageDotsHit}
+                        hitSlop={10}
+                        onPress={() => openMessageMenu(item)}
+                        accessibilityLabel="Message options">
+                        <MaterialIcons name="more-horiz" size={22} color="rgba(255,255,255,0.88)" />
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
                   <View
                     style={[
                       styles.bubble,
-                      styles.bubbleMine,
+                      styles.bubbleTheirs,
+                      fxStyle,
                       item.gifUrl ? styles.bubbleGifShell : styles.bubbleTextPad,
-                      item.gifUrl ? styles.bubbleAlignEnd : null,
+                      item.gifUrl ? styles.bubbleAlignStart : null,
                     ]}>
                     {item.gifUrl ? (
                       <Image
@@ -385,53 +546,13 @@ export default function ChatScreen() {
                       />
                     ) : null}
                     {item.text ? (
-                      <Text
-                        style={[
-                          styles.bubbleText,
-                          styles.bubbleTextMine,
-                          Boolean(item.gifUrl) && styles.bubbleCaption,
-                        ]}>
-                        {item.text}
-                      </Text>
+                      <Text style={[styles.bubbleText, Boolean(item.gifUrl) && styles.bubbleCaption]}>{item.text}</Text>
                     ) : null}
                   </View>
-                  <View
-                    collapsable={false}
-                    ref={(r) => {
-                      if (r) menuAnchorRefs.current[item.id] = r;
-                      else delete menuAnchorRefs.current[item.id];
-                    }}>
-                    <Pressable
-                      style={styles.messageDotsHit}
-                      hitSlop={10}
-                      onPress={() => openMessageMenu(item)}
-                      accessibilityLabel="Message options">
-                      <MaterialIcons name="more-horiz" size={22} color="rgba(255,255,255,0.88)" />
-                    </Pressable>
-                  </View>
-                </View>
-              ) : (
-                <View
-                  style={[
-                    styles.bubble,
-                    styles.bubbleTheirs,
-                    item.gifUrl ? styles.bubbleGifShell : styles.bubbleTextPad,
-                    item.gifUrl ? styles.bubbleAlignStart : null,
-                  ]}>
-                  {item.gifUrl ? (
-                    <Image
-                      source={{ uri: item.gifUrl }}
-                      style={styles.bubbleGif}
-                      contentFit="contain"
-                      accessibilityLabel="GIF"
-                    />
-                  ) : null}
-                  {item.text ? (
-                    <Text style={[styles.bubbleText, Boolean(item.gifUrl) && styles.bubbleCaption]}>{item.text}</Text>
-                  ) : null}
-                </View>
-              )}
+                );
+              })()}
             </View>
+            </Swipeable>
           );
         }}
       />
@@ -440,8 +561,9 @@ export default function ChatScreen() {
 
   return (
     <ScreenEnter>
-      <SafeAreaView style={styles.root} edges={['top']}>
+      <SafeAreaView style={[styles.root, { backgroundColor: theme.background }]} edges={['top']}>
       <View style={styles.header}>
+        <BlurView tint="dark" intensity={42} style={styles.headerBlur} />
         <PressableScale onPress={pickAndUploadIcon} disabled={busy} style={styles.headerAvatarTap}>
           {group?.groupPhotoURL ? (
             <Image source={{ uri: group.groupPhotoURL }} style={styles.headerAvatar} contentFit="cover" />
@@ -451,15 +573,18 @@ export default function ChatScreen() {
             </View>
           )}
         </PressableScale>
-        <View style={styles.headerTitles}>
+        <Pressable style={styles.headerTitles} onPress={() => void openGroupHub()}>
           <Text style={styles.headerName} numberOfLines={1}>
             {group?.name ?? 'Squad'}
           </Text>
           <Text style={styles.headerSub}>
             {(group?.memberIds?.length ?? 0)} {(group?.memberIds?.length ?? 0) === 1 ? 'member' : 'members'}
           </Text>
-        </View>
+        </Pressable>
         <View style={styles.headerActions}>
+          <PressableScale onPress={triggerChatFx} style={styles.headerFx} hitSlop={10}>
+            <Text style={styles.headerFxText}>FX</Text>
+          </PressableScale>
           <PressableScale onPress={openSettings} style={styles.headerGear} hitSlop={12}>
             <MaterialIcons name="palette" size={24} color={Mocha.fg2} />
           </PressableScale>
@@ -478,7 +603,7 @@ export default function ChatScreen() {
           <View style={[styles.flex, { backgroundColor: solidBg }]}>{listContent}</View>
         )}
 
-        <View style={styles.composerWrap}>
+        <View style={[styles.composerWrap, { paddingBottom: Math.max(10, tabBarHeight + 8 - insets.bottom) }]}>
           <Text style={styles.composerHint}>GIF — tap below to pick from Giphy.</Text>
           <View style={styles.composerRow}>
             <PressableScale
@@ -682,6 +807,80 @@ export default function ChatScreen() {
           </Animated.View>
         </View>
       </Modal>
+      <Modal visible={groupHubOpen} transparent animationType="slide" onRequestClose={() => setGroupHubOpen(false)}>
+        <View style={styles.modalRoot}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setGroupHubOpen(false)} />
+          <View style={styles.modalSheet}>
+            <Text style={styles.modalTitle}>Group hub</Text>
+            <Text style={styles.modalHint}>Tap a member to preview their profile.</Text>
+            {groupHubBusy ? <ActivityIndicator color={Mocha.fg2} /> : null}
+            <View style={styles.memberCircleRow}>
+              {memberProfiles.map((m) => (
+                <Pressable key={m.uid} style={styles.memberCircleBtn} onPress={() => setSelectedMember(m)}>
+                  {m.photoURL ? (
+                    <Image source={{ uri: m.photoURL }} style={styles.memberCircleAvatar} contentFit="cover" />
+                  ) : (
+                    <View style={[styles.memberCircleAvatar, styles.memberCirclePh]}>
+                      <MaterialIcons name="person" size={18} color={Mocha.fg3} />
+                    </View>
+                  )}
+                  <Text style={styles.memberCircleName} numberOfLines={1}>
+                    @{m.username ?? m.uid.slice(0, 6)}
+                  </Text>
+                  <View style={styles.memberTinyEquipRow}>
+                    {m.equippedBubbleEffect ? <Text style={styles.memberTinyEquip}>bubble</Text> : null}
+                    {m.equippedChatAnimation ? <Text style={styles.memberTinyEquip}>fx</Text> : null}
+                    {m.equippedProfileFrame ? <Text style={styles.memberTinyEquip}>frame</Text> : null}
+                  </View>
+                  {m.equippedBubbleEffect || m.equippedChatAnimation || m.equippedProfileFrame ? (
+                    <Text style={styles.memberTinyBy} numberOfLines={1}>
+                      equipped by @{m.username ?? m.uid.slice(0, 6)}
+                    </Text>
+                  ) : null}
+                </Pressable>
+              ))}
+            </View>
+            {selectedMember ? (
+              <View style={styles.memberPreview}>
+                <Text style={styles.memberPreviewTitle}>
+                  {selectedMember.displayName || selectedMember.username || selectedMember.uid}
+                </Text>
+                <Text style={styles.memberPreviewSub}>
+                  @{selectedMember.username ?? selectedMember.uid.slice(0, 6)}
+                  {selectedMember.pronouns ? ` · ${selectedMember.pronouns}` : ''}
+                </Text>
+                {selectedMember.aboutMe ? <Text style={styles.memberPreviewAbout}>{selectedMember.aboutMe}</Text> : null}
+                <View style={styles.memberEquipList}>
+                  {selectedMember.equippedBubbleEffect ? (
+                    <Text style={styles.memberEquipLine}>
+                      Equipped bubble: {selectedMember.equippedBubbleEffect} (by @{selectedMember.username ?? selectedMember.uid.slice(0, 6)})
+                    </Text>
+                  ) : null}
+                  {selectedMember.equippedChatAnimation ? (
+                    <Text style={styles.memberEquipLine}>
+                      Equipped chat FX: {selectedMember.equippedChatAnimation} (by @{selectedMember.username ?? selectedMember.uid.slice(0, 6)})
+                    </Text>
+                  ) : null}
+                  {selectedMember.equippedProfileFrame ? (
+                    <Text style={styles.memberEquipLine}>
+                      Equipped frame: {selectedMember.equippedProfileFrame} (by @{selectedMember.username ?? selectedMember.uid.slice(0, 6)})
+                    </Text>
+                  ) : null}
+                </View>
+                {selectedMember.badges?.length ? (
+                  <View style={styles.memberBadgeRow}>
+                    {selectedMember.badges.map((b) => (
+                      <Text key={b} style={styles.memberBadge}>
+                        {b === 'mcfattie' ? 'McFattie Badge' : b}
+                      </Text>
+                    ))}
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
       </SafeAreaView>
 
       <GiphyPicker
@@ -689,6 +888,11 @@ export default function ChatScreen() {
         onClose={() => setGiphyOpen(false)}
         onPick={(url) => void sendGiphy(url)}
       />
+      {fxBurst ? (
+        <View pointerEvents="none" style={styles.fxOverlay}>
+          <Text style={styles.fxText}>{fxBurst === 'fireworks' ? '🎆  🎇  🎆' : '🎉  ✨  🎉'}</Text>
+        </View>
+      ) : null}
     </ScreenEnter>
   );
 }
@@ -697,16 +901,19 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Mocha.bg0_h },
   flex: { flex: 1 },
   muted: { color: Mocha.fg4, padding: 16 },
+  emptyWrap: { padding: Space[4], paddingTop: Space[6] },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Mocha.bg3,
-    backgroundColor: Mocha.bg0_h,
+    borderBottomColor: `${Mocha.bg3}B3`,
+    backgroundColor: 'rgba(15, 15, 20, 0.32)',
     gap: 10,
+    overflow: 'hidden',
   },
+  headerBlur: { ...StyleSheet.absoluteFillObject },
   headerAvatarTap: { borderRadius: 24, overflow: 'hidden' },
   headerAvatar: { width: 48, height: 48, borderRadius: 24 },
   headerAvatarPh: {
@@ -721,6 +928,8 @@ const styles = StyleSheet.create({
   headerSub: { fontSize: 12, color: Mocha.fg4, marginTop: 2 },
   headerGear: { padding: 8 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerFx: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: Mocha.bg3, backgroundColor: Mocha.bg1 },
+  headerFxText: { color: Mocha.yellow, fontSize: 11, fontWeight: '800' },
   threadFill: { flex: 1 },
   flatList: { flex: 1 },
   threadDim: {
@@ -764,9 +973,19 @@ const styles = StyleSheet.create({
   bubbleMine: {
     borderBottomRightRadius: 6,
   },
+  bubbleNeon: {
+    borderColor: '#80d8ff',
+    shadowColor: '#80d8ff',
+    shadowOpacity: 0.55,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 0 },
+  },
+  bubbleSparkle: {
+    borderColor: '#f9e2af',
+    backgroundColor: 'rgba(60, 51, 33, 0.4)',
+  },
   bubbleText: {
-    fontSize: 15,
-    lineHeight: 20,
+    ...Typography.body,
     color: 'rgba(255, 255, 255, 0.88)',
   },
   bubbleTextMine: { color: 'rgba(255, 255, 255, 0.9)' },
@@ -889,6 +1108,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   modalCloseText: { fontWeight: '800', color: Mocha.fg0 },
+  memberCircleRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 6 },
+  memberCircleBtn: { width: 70, alignItems: 'center', gap: 5 },
+  memberCircleAvatar: { width: 54, height: 54, borderRadius: 27, backgroundColor: Mocha.bg2 },
+  memberCirclePh: { justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: Mocha.bg3 },
+  memberCircleName: { color: Mocha.fg2, fontSize: 10, textAlign: 'center' },
+  memberTinyEquipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 3, justifyContent: 'center' },
+  memberTinyEquip: {
+    fontSize: 8,
+    color: Mocha.aqua,
+    borderWidth: 1,
+    borderColor: `${Mocha.aqua}88`,
+    borderRadius: 999,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  memberTinyBy: { fontSize: 7, color: Mocha.fg4, textAlign: 'center' },
+  memberPreview: { marginTop: 12, borderWidth: 1, borderColor: Mocha.bg3, borderRadius: 12, padding: 10, gap: 4, backgroundColor: Mocha.bg0 },
+  memberPreviewTitle: { color: Mocha.rosewater, fontWeight: '800', fontSize: 15 },
+  memberPreviewSub: { color: Mocha.fg3, fontSize: 12 },
+  memberPreviewAbout: { color: Mocha.fg1, fontSize: 13, lineHeight: 18 },
+  memberEquipList: { marginTop: 4, gap: 2 },
+  memberEquipLine: { color: Mocha.aqua, fontSize: 11, lineHeight: 15 },
+  memberBadgeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  memberBadge: { color: Mocha.orange, fontWeight: '700', fontSize: 11, borderWidth: 1, borderColor: `${Mocha.orange}88`, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
 
   mineBubbleRow: {
     flexDirection: 'row',
@@ -903,6 +1146,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  swipeAction: {
+    width: 80,
+    borderRadius: 12,
+    marginVertical: 8,
+    marginLeft: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: `${Mocha.blue}CC`,
+    gap: 4,
+  },
+  swipeActionText: { color: Mocha.fg0, fontSize: 12, fontWeight: '700' },
   menuOverlay: { flex: 1 },
   messageMenuBox: {
     position: 'absolute',
@@ -965,4 +1219,6 @@ const styles = StyleSheet.create({
   },
   editSaveText: { color: Mocha.fg0, fontWeight: '800', fontSize: 16 },
   disabled: { opacity: 0.45 },
+  fxOverlay: { position: 'absolute', top: 120, alignSelf: 'center', backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 12, paddingHorizontal: 18, paddingVertical: 10 },
+  fxText: { fontSize: 28, letterSpacing: 3 },
 });

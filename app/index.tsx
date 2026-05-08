@@ -1,6 +1,8 @@
 import { Redirect } from 'expo-router';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
+import { Skeleton } from '@/components/ui/skeleton';
+import { Radius, Space } from '@/constants/design';
 import { Mocha } from '@/constants/mocha';
 import { useAuth } from '@/context/AuthContext';
 import { isFirebaseConfigured } from '@/lib/firebase';
@@ -15,8 +17,9 @@ export default function Index() {
   if (!ready) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color={Mocha.fg3} />
-        <Text style={styles.muted}>Starting…</Text>
+        <Skeleton style={styles.skeletonOrb} />
+        <Skeleton style={styles.skeletonLineWide} />
+        <Skeleton style={styles.skeletonLineShort} />
       </View>
     );
   }
@@ -38,10 +41,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Mocha.bg0_h,
-    gap: 12,
+    gap: Space[2],
+    paddingHorizontal: Space[4],
   },
-  muted: {
-    color: Mocha.fg4,
-    fontSize: 14,
-  },
+  skeletonOrb: { width: 64, height: 64, borderRadius: Radius.full },
+  skeletonLineWide: { width: 220, height: 18, borderRadius: Radius.sm },
+  skeletonLineShort: { width: 140, height: 18, borderRadius: Radius.sm },
 });

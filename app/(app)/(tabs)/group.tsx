@@ -2,22 +2,31 @@ import { useState } from 'react';
 import {
   Alert,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PressableScale } from '@/components/pressable-scale';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Radius, Space, Typography } from '@/constants/design';
 import { ScreenEnter } from '@/components/screen-enter';
 import { Mocha } from '@/constants/mocha';
+import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { useGroup } from '@/context/GroupContext';
+import { useToast } from '@/context/ToastContext';
+import { hapticSuccess } from '@/utils/haptics';
 
 export default function GroupScreen() {
+  const { theme } = useAppTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const { showToast } = useToast();
   const { profile } = useAuth();
   const {
     activeGroupId,
@@ -37,9 +46,10 @@ export default function GroupScreen() {
     setBusy(true);
     try {
       const id = await createNewGroup(newName);
-      Alert.alert('Group created', `Share this id with friends:\n\n${id}`);
+      void hapticSuccess();
+      showToast({ title: 'Group created', message: `Share id: ${id}`, tone: 'success' });
     } catch (e) {
-      Alert.alert('Create', e instanceof Error ? e.message : 'Failed');
+      showToast({ title: 'Create failed', message: e instanceof Error ? e.message : 'Failed', tone: 'error' });
     } finally {
       setBusy(false);
     }
@@ -49,9 +59,11 @@ export default function GroupScreen() {
     setBusy(true);
     try {
       await joinGroupById(joinId);
+      void hapticSuccess();
       setJoinId('');
+      showToast({ title: 'Joined group', tone: 'success' });
     } catch (e) {
-      Alert.alert('Join', e instanceof Error ? e.message : 'Failed');
+      showToast({ title: 'Join failed', message: e instanceof Error ? e.message : 'Failed', tone: 'error' });
     } finally {
       setBusy(false);
     }
@@ -76,9 +88,13 @@ export default function GroupScreen() {
 
   return (
     <ScreenEnter>
-      <SafeAreaView style={styles.root} edges={['top']}>
-        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Group</Text>
+      <SafeAreaView style={[styles.root, { backgroundColor: theme.background }]} edges={['top']}>
+        <ScrollView
+          contentContainerStyle={[styles.scroll, { paddingBottom: tabBarHeight + Space[4] }]}
+          keyboardShouldPersistTaps="handled">
+        <Text allowFontScaling={false} style={styles.title}>
+          Group
+        </Text>
         <Text style={styles.sub}>
           Logged in as <Text style={styles.bold}>@{profile?.username}</Text>. Create a squad or
           paste a group id to join. One active group is stored on this device.
@@ -159,7 +175,21 @@ export default function GroupScreen() {
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Members</Text>
           {members.size === 0 ? (
-            <Text style={styles.muted}>Join a group to see members.</Text>
+            activeGroupId ? (
+              <View style={styles.skeletonList}>
+                <Skeleton style={styles.memberSkeleton} />
+                <Skeleton style={styles.memberSkeleton} />
+                <Skeleton style={styles.memberSkeletonShort} />
+              </View>
+            ) : (
+              <EmptyState
+                icon="groups"
+                title="No group yet"
+                description="Create a new squad or paste an invite id to collaborate."
+                ctaLabel="Create group"
+                onPressCta={() => void onCreate()}
+              />
+            )
           ) : (
             [...members.entries()].map(([id, m]) => (
               <Text key={id} style={styles.memberLine}>
@@ -176,17 +206,22 @@ export default function GroupScreen() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Mocha.bg0_h },
-  scroll: { padding: 16, paddingBottom: 40, gap: 14 },
-  title: { fontSize: 26, fontWeight: '800', color: Mocha.rosewater, letterSpacing: 0.2 },
-  sub: { color: Mocha.fg3, fontSize: 14, lineHeight: 22 },
+  scroll: { padding: Space[4], paddingBottom: Space[10], gap: Space[4] },
+  title: { ...Typography.title, color: Mocha.rosewater },
+  sub: { ...Typography.body, color: Mocha.fg3 },
   bold: { color: Mocha.fg1, fontWeight: '700' },
   card: {
     backgroundColor: Mocha.bg1,
-    borderRadius: 18,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: Mocha.bg3,
-    gap: 12,
+    borderRadius: Radius.lg,
+    padding: Space[4],
+    borderWidth: 0.5,
+    borderColor: `${Mocha.bg3}AA`,
+    gap: Space[3],
+    shadowColor: Mocha.blue,
+    shadowOpacity: 0.14,
+    shadowRadius: 26,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 8,
   },
   cardTitle: {
     color: Mocha.flamingo,
@@ -197,7 +232,7 @@ const styles = StyleSheet.create({
   muted: { color: Mocha.fg4, fontSize: 13 },
   mono: { color: Mocha.aqua, fontFamily: 'monospace', fontSize: 13 },
   warn: { color: Mocha.orange, fontSize: 13 },
-  row: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  row: { flexDirection: 'row', gap: Space[2], alignItems: 'center' },
   input: {
     flex: 1,
     backgroundColor: Mocha.bg0,
@@ -231,4 +266,7 @@ const styles = StyleSheet.create({
   },
   dangerText: { color: Mocha.red, fontWeight: '700' },
   memberLine: { color: Mocha.fg1, fontSize: 14, paddingVertical: 4 },
+  skeletonList: { gap: Space[2], paddingTop: Space[1] },
+  memberSkeleton: { width: '100%', height: 18, borderRadius: Radius.sm },
+  memberSkeletonShort: { width: '65%', height: 18, borderRadius: Radius.sm },
 });

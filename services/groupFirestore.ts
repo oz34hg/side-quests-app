@@ -87,10 +87,17 @@ export type VlogRow = { id: string; data: VlogDoc };
 
 /** Past days grouped for archive UI (newest calendar day first). */
 export type VlogPastSection = { dayKey: string; entries: VlogRow[] };
+export type StoreItemKind = 'bubbleEffect' | 'chatAnimation' | 'profileFrame';
 
 function assertDb() {
   if (!db) throw new Error('Firebase is not configured.');
   return db;
+}
+
+function isFoodQuest(questText: string | undefined, questId: string): boolean {
+  const source = (questText || questById(questId)?.text || '').toLowerCase();
+  if (!source) return false;
+  return /(food|eat|meal|snack|burger|pizza|taco|drink|restaurant|cook|cooking)/.test(source);
 }
 
 export async function createGroup(params: {
@@ -298,6 +305,10 @@ export async function castSideQuestVote(
         sideQuestsCompleted: increment(1),
         questPoints: increment(pts),
       });
+      if (isFoodQuest(d.questText, d.questId)) {
+        const userRef = doc(database, 'users', d.assigneeUserId);
+        tx.set(userRef, { badges: arrayUnion('mcfattie') }, { merge: true });
+      }
     }
   });
 }
@@ -382,6 +393,38 @@ export async function addVlogEntry(
   });
   batch.set(statRef, { vlogsUploaded: increment(1) }, { merge: true });
   await batch.commit();
+}
+
+export async function purchaseStoreItem(params: {
+  groupId: string;
+  userId: string;
+  itemId: string;
+  cost: number;
+  kind: StoreItemKind;
+}): Promise<void> {
+  const database = assertDb();
+  const statRef = doc(database, 'groups', params.groupId, 'stats', params.userId);
+  const userRef = doc(database, 'users', params.userId);
+  await runTransaction(database, async (tx) => {
+    const [statSnap, userSnap] = await Promise.all([tx.get(statRef), tx.get(userRef)]);
+    const points = statSnap.exists() ? ((statSnap.data() as StatsDoc).questPoints ?? 0) : 0;
+    if (points < params.cost) throw new Error('Not enough quest points.');
+    const userData = userSnap.exists()
+      ? (userSnap.data() as {
+          ownedStoreItems?: string[];
+        })
+      : {};
+    const owned = userData.ownedStoreItems ?? [];
+    if (owned.includes(params.itemId)) return;
+    tx.set(statRef, { questPoints: increment(-params.cost) }, { merge: true });
+    tx.set(
+      userRef,
+      {
+        ownedStoreItems: arrayUnion(params.itemId),
+      },
+      { merge: true },
+    );
+  });
 }
 
 export function subscribeGroup(

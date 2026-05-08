@@ -1,7 +1,6 @@
 import { Link, Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -14,11 +13,18 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CozyEnter } from '@/components/cozy-enter';
+import { PressableScale } from '@/components/pressable-scale';
+import { Typography } from '@/constants/design';
 import { Mocha } from '@/constants/mocha';
+import { useAppTheme } from '@/context/AppThemeContext';
 import { useAuth } from '@/context/AuthContext';
+import { useToast } from '@/context/ToastContext';
 import { isFirebaseConfigured } from '@/lib/firebase';
+import { hapticSuccess } from '@/utils/haptics';
 
 export default function LoginScreen() {
+  const { theme } = useAppTheme();
+  const { showToast } = useToast();
   const { ready, user, needsUsername, signInEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -40,15 +46,16 @@ export default function LoginScreen() {
     setBusy(true);
     try {
       await signInEmail(email, password);
+      void hapticSuccess();
     } catch (e) {
-      Alert.alert('Sign in', e instanceof Error ? e.message : 'Failed');
+      showToast({ title: 'Sign in failed', message: e instanceof Error ? e.message : 'Failed', tone: 'error' });
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -58,13 +65,15 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}>
           <CozyEnter>
             <View style={styles.formBlock}>
-              <Text style={styles.title}>Side Quests</Text>
-              <Text style={styles.sub}>Sign in with your email and password.</Text>
+              <Text allowFontScaling={false} style={[styles.title, { color: theme.text }]}>
+                Side Quests
+              </Text>
+              <Text style={[styles.sub, { color: theme.muted }]}>Sign in with your email and password.</Text>
 
               <TextInput
                 style={styles.input}
                 placeholder="Email"
-                placeholderTextColor={Mocha.fg4}
+                placeholderTextColor={theme.muted}
                 autoCapitalize="none"
                 keyboardType="email-address"
                 value={email}
@@ -73,18 +82,18 @@ export default function LoginScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Password"
-                placeholderTextColor={Mocha.fg4}
+                placeholderTextColor={theme.muted}
                 secureTextEntry
                 value={password}
                 onChangeText={setPassword}
               />
-              <Pressable style={[styles.btn, styles.primary]} disabled={busy} onPress={onEmail}>
+              <PressableScale style={[styles.btn, styles.primary, { backgroundColor: theme.primary }]} disabled={busy} onPress={onEmail}>
                 <Text style={styles.btnTextDark}>{busy ? '…' : 'Sign in'}</Text>
-              </Pressable>
+              </PressableScale>
 
               <Link href="/(auth)/signup" asChild>
                 <Pressable style={styles.linkWrap}>
-                  <Text style={styles.link}>Create account</Text>
+                  <Text style={[styles.link, { color: theme.primary }]}>Create account</Text>
                 </Pressable>
               </Link>
             </View>
@@ -116,14 +125,9 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     color: Mocha.rosewater,
     textAlign: 'center',
-    letterSpacing: 0.3,
+    letterSpacing: -0.5,
   },
-  sub: {
-    color: Mocha.fg3,
-    textAlign: 'center',
-    marginBottom: 2,
-    lineHeight: 22,
-  },
+  sub: { ...Typography.body, color: Mocha.fg3, textAlign: 'center', marginBottom: 2 },
   btn: {
     paddingVertical: 15,
     borderRadius: 14,

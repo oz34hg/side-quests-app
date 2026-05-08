@@ -1,4 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -21,6 +23,7 @@ import { ScreenEnter } from '@/components/screen-enter';
 import { Mocha } from '@/constants/mocha';
 import { SIDE_QUESTS, questById } from '@/constants/quests';
 import { useAuth } from '@/context/AuthContext';
+import { APP_THEMES, useAppTheme } from '@/context/AppThemeContext';
 import { useGroup } from '@/context/GroupContext';
 import { pickVideoRecording } from '@/lib/pickVideo';
 import { formatDayKeyLabel, seededSlot } from '@/utils/dateKey';
@@ -37,8 +40,8 @@ function miniRank(
   stats: Map<string, { messagesSent: number; sideQuestsCompleted: number; vlogsUploaded: number; questPoints?: number }>,
   members: Map<string, { username: string }>,
   key: 'messagesSent' | 'sideQuestsCompleted' | 'vlogsUploaded' | 'questPoints',
-  title: string,
   color: string,
+  maxRows = 5,
 ) {
   const rows = [...stats.entries()]
     .map(([uid, s]) => ({
@@ -47,14 +50,17 @@ function miniRank(
       name: members.get(uid)?.username ?? '…',
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 5);
+    .slice(0, maxRows);
   return (
-    <View style={sb.board}>
-      <Text style={[sb.boardTitle, { color }]}>{title}</Text>
+    <View style={[sb.board, { borderColor: `${color}99` }]}>
       {rows.map((r, i) => (
-        <Text key={r.uid} style={sb.line} numberOfLines={1}>
-          {i + 1}. {r.name} ({r.score})
-        </Text>
+        <View key={r.uid} style={sb.lineRow}>
+          <Text style={[sb.rankBadge, i === 0 && sb.rankBadgeTop]}>{i + 1}</Text>
+          <Text style={sb.line} numberOfLines={1}>
+            {r.name}
+          </Text>
+          <Text style={[sb.lineScore, { color }]}>{r.score}</Text>
+        </View>
       ))}
     </View>
   );
@@ -62,6 +68,17 @@ function miniRank(
 
 export default function TodayScreen() {
   const { user } = useAuth();
+  const {
+    themeName,
+    theme,
+    setThemeName,
+    reduceMotion,
+    compactSidebar,
+    showAmbientOrbs,
+    setReduceMotion,
+    setCompactSidebar,
+    setShowAmbientOrbs,
+  } = useAppTheme();
   const {
     loading,
     activeGroupId,
@@ -76,9 +93,11 @@ export default function TodayScreen() {
     voteQuest,
     bumpDayKey,
   } = useGroup();
+  const tabBarHeight = useBottomTabBarHeight();
 
   const [busy, setBusy] = useState(false);
   const [todayVlogOpen, setTodayVlogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -157,16 +176,16 @@ export default function TodayScreen() {
 
   return (
     <ScreenEnter>
-      <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[styles.root, { backgroundColor: theme.background }]} edges={['top', 'left', 'right']}>
         <View style={styles.bodyRow}>
         <ScrollView
-          style={styles.main}
-          contentContainerStyle={styles.mainScroll}
+          style={[styles.main, webSnapScroll as any]}
+          contentContainerStyle={[styles.mainScroll, { paddingBottom: tabBarHeight + 48 }]}
           removeClippedSubviews={false}>
           <CozyEnter>
-            <View>
+            <View style={webSnapChild as any}>
           <View style={styles.headerRow}>
-            <View style={[styles.cornerCard, styles.squadCard]}>
+            <View style={[styles.cornerCard, glassCard as any, styles.squadCard, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
               <Text style={styles.cornerLabel}>Squad</Text>
               {!activeGroupId ? (
                 <Text style={styles.muted}>Open the Group tab.</Text>
@@ -191,7 +210,7 @@ export default function TodayScreen() {
               )}
             </View>
 
-            <View style={[styles.cornerCard, styles.questCard]}>
+            <View style={[styles.cornerCard, glassCard as any, styles.questCard, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
               <Text style={styles.cornerLabel}>{"Today's side quest"}</Text>
               {!activeGroupId ? (
                 <Text style={styles.muted}>Open the Group tab to pick a squad.</Text>
@@ -226,7 +245,7 @@ export default function TodayScreen() {
 
           {activeGroupId && day && group?.anchorDayKey ? (
             <>
-              <View style={styles.panel}>
+              <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                 <Text style={styles.panelTitle}>Day vlog (everyone)</Text>
                 <Text style={styles.panelText}>
                   Open the folder to watch or add clips for today. Older days are on the Archive tab. Clips count toward the
@@ -239,7 +258,7 @@ export default function TodayScreen() {
               </View>
 
               {day.sideQuestStatus === 'open' && isAssignee ? (
-                <View style={styles.panel}>
+                <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                   <Text style={styles.panelTitle}>Your side quest (optional)</Text>
                   <Text style={styles.panelText}>Record proof so the squad can vote.</Text>
                   <PressableScale style={[styles.primaryBtn, busy && styles.btnDisabled]} disabled={busy} onPress={recordQuestProof}>
@@ -249,7 +268,7 @@ export default function TodayScreen() {
               ) : null}
 
               {day.sideQuestStatus === 'open' && !isAssignee ? (
-                <View style={styles.panel}>
+                <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                   <Text style={styles.panelText}>
                     Waiting for @{assigneeName} to submit proof for the optional side quest.
                   </Text>
@@ -257,7 +276,7 @@ export default function TodayScreen() {
               ) : null}
 
               {day.sideQuestStatus === 'voting' && day.proofVideoUrl ? (
-                <View style={styles.panel}>
+                <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                   <Text style={styles.panelTitle}>Side quest vote</Text>
                   <RemoteVideoView uri={day.proofVideoUrl} />
                   {voterIds.map((vid) => {
@@ -295,7 +314,7 @@ export default function TodayScreen() {
               ) : null}
 
               {day.sideQuestStatus === 'resolved' && day.resolution ? (
-                <View style={styles.panel}>
+                <View style={[styles.panel, webSnapChild as any, glassCard as any, { backgroundColor: `${theme.card}DD`, borderColor: theme.border }]}>
                   <Text style={styles.panelTitle}>Side quest result</Text>
                   <Text
                     style={[
@@ -314,13 +333,20 @@ export default function TodayScreen() {
         </ScrollView>
 
         {activeGroupId ? (
-          <View style={styles.sidebar}>
-            <Text style={styles.sideHeader}>Quest pts</Text>
-            {miniRank(stats, members, 'questPoints', 'Pts', Mocha.rosewater)}
+          <View style={[styles.sidebar, compactSidebar ? styles.sidebarCompact : null, { backgroundColor: theme.card }]}>
+            <Text style={styles.sideHeader}>Quest Points</Text>
+            {miniRank(stats, members, 'questPoints', Mocha.rosewater, compactSidebar ? 3 : 5)}
             <Text style={[styles.sideHeader, styles.sideHeaderSpaced]}>Live ranks</Text>
-            {miniRank(stats, members, 'messagesSent', 'Msgs', Mocha.aqua)}
-            {miniRank(stats, members, 'sideQuestsCompleted', 'Quests', Mocha.purple)}
-            {miniRank(stats, members, 'vlogsUploaded', 'Vlogs', Mocha.orange)}
+            <Text style={styles.rankLabel}>Messages</Text>
+            {miniRank(stats, members, 'messagesSent', Mocha.aqua, compactSidebar ? 3 : 5)}
+            <Text style={styles.rankLabel}>Side Quests</Text>
+            {miniRank(stats, members, 'sideQuestsCompleted', Mocha.purple, compactSidebar ? 3 : 5)}
+            <Text style={styles.rankLabel}>Vlogs</Text>
+            {miniRank(stats, members, 'vlogsUploaded', Mocha.orange, compactSidebar ? 3 : 5)}
+            <PressableScale style={styles.settingsBtn} onPress={() => setSettingsOpen(true)}>
+              <MaterialIcons name="settings" size={16} color={Mocha.fg1} />
+              <Text style={styles.settingsBtnText}>Settings</Text>
+            </PressableScale>
           </View>
         ) : null}
       </View>
@@ -330,8 +356,8 @@ export default function TodayScreen() {
         animationType="slide"
         presentationStyle="fullScreen"
         onRequestClose={() => setTodayVlogOpen(false)}>
-        <SafeAreaView style={styles.modalRoot} edges={['top', 'bottom', 'left', 'right']}>
-          <View style={styles.modalHeader}>
+        <SafeAreaView style={[styles.modalRoot, { backgroundColor: theme.background }]} edges={['top', 'bottom', 'left', 'right']}>
+          <View style={[styles.modalHeader, glassCard as any]}>
             <View style={styles.modalHeaderTitles}>
               <Text style={styles.modalTitle}>Today’s clips</Text>
               <Text style={styles.modalSubtitle}>{formatDayKeyLabel(dayKey)}</Text>
@@ -368,15 +394,94 @@ export default function TodayScreen() {
           </ScrollView>
         </SafeAreaView>
       </Modal>
+
+      <Modal visible={settingsOpen} transparent animationType="fade" onRequestClose={() => setSettingsOpen(false)}>
+        <View style={styles.themeModalRoot}>
+          <Pressable style={styles.themeBackdrop} onPress={() => setSettingsOpen(false)} />
+          <View style={[styles.themeSheet, glassCard as any]}>
+            <Text style={styles.themeTitle}>Settings</Text>
+            <Text style={styles.themeSubtitle}>Theme + app behavior options.</Text>
+            <Pressable
+              style={[styles.optionRow, reduceMotion && styles.optionRowOn]}
+              onPress={() => void setReduceMotion(!reduceMotion)}>
+              <Text style={styles.optionName}>Reduce motion</Text>
+              <Text style={styles.optionValue}>{reduceMotion ? 'On' : 'Off'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.optionRow, compactSidebar && styles.optionRowOn]}
+              onPress={() => void setCompactSidebar(!compactSidebar)}>
+              <Text style={styles.optionName}>Compact sidebar</Text>
+              <Text style={styles.optionValue}>{compactSidebar ? 'On' : 'Off'}</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.optionRow, !showAmbientOrbs && styles.optionRowOn]}
+              onPress={() => void setShowAmbientOrbs(!showAmbientOrbs)}>
+              <Text style={styles.optionName}>Ambient orbs</Text>
+              <Text style={styles.optionValue}>{showAmbientOrbs ? 'On' : 'Off'}</Text>
+            </Pressable>
+            <Text style={styles.themeGroupLabel}>Themes</Text>
+            {Object.entries(APP_THEMES).map(([key, t]) => {
+              const selected = key === themeName;
+              return (
+                <Pressable
+                  key={key}
+                  style={[styles.themeRow, selected && styles.themeRowOn]}
+                  onPress={() => {
+                    void setThemeName(key as keyof typeof APP_THEMES);
+                    setSettingsOpen(false);
+                  }}>
+                  <Text style={styles.themeName}>{t.label}</Text>
+                  <View style={styles.paletteRow}>
+                    {t.palette.map((p) => (
+                      <View key={`${key}-${p}`} style={[styles.themeSwatch, { backgroundColor: p }]} />
+                    ))}
+                  </View>
+                  {selected ? <MaterialIcons name="check-circle" size={18} color={Mocha.green} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      </Modal>
       </SafeAreaView>
     </ScreenEnter>
   );
 }
 
 const sb = StyleSheet.create({
-  board: { marginBottom: 10, gap: 2 },
-  boardTitle: { fontSize: 10, fontWeight: '800', textTransform: 'uppercase' },
-  line: { color: Mocha.fg3, fontSize: 10 },
+  board: {
+    marginBottom: 10,
+    gap: 4,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 6,
+    backgroundColor: `${Mocha.bg2}77`,
+  },
+  lineRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 8,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+  },
+  rankBadge: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    textAlign: 'center',
+    textAlignVertical: 'center',
+    fontSize: 9,
+    lineHeight: 16,
+    color: Mocha.bg0_h,
+    backgroundColor: Mocha.fg3,
+    fontWeight: '800',
+  },
+  rankBadgeTop: {
+    backgroundColor: Mocha.yellow,
+  },
+  line: { color: Mocha.fg1, fontSize: 10, flex: 1 },
+  lineScore: { fontSize: 10, fontWeight: '900' },
 });
 
 const cozyCard = Platform.select({
@@ -391,12 +496,21 @@ const cozyCard = Platform.select({
   default: {},
 });
 
+const webSnapScroll = Platform.OS === 'web' ? ({ scrollSnapType: 'y mandatory' } as const) : null;
+const webSnapChild = Platform.OS === 'web' ? ({ scrollSnapAlign: 'start' } as const) : null;
+const glassCard = Platform.OS === 'web'
+  ? ({
+      backdropFilter: 'blur(18px) saturate(1.15)',
+      WebkitBackdropFilter: 'blur(18px) saturate(1.15)',
+    } as const)
+  : null;
+
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: Mocha.bg0_h },
   center: { justifyContent: 'center', alignItems: 'center' },
   bodyRow: { flex: 1, flexDirection: 'row' },
   main: { flex: 1 },
-  mainScroll: { paddingBottom: 36, paddingLeft: 12, paddingRight: 6, paddingTop: 8 },
+  mainScroll: { paddingBottom: 128, paddingLeft: 12, paddingRight: 8, paddingTop: 8 },
   sidebar: {
     width: 108,
     borderLeftWidth: 0,
@@ -404,24 +518,33 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     backgroundColor: Mocha.bg0,
   },
+  sidebarCompact: { width: 96 },
   sideHeader: {
     color: Mocha.rosewater,
-    fontSize: 9,
+    fontSize: 10,
     fontWeight: '800',
     textTransform: 'uppercase',
     marginBottom: 6,
   },
   sideHeaderSpaced: { marginTop: 6 },
+  rankLabel: {
+    color: Mocha.fg4,
+    fontSize: 8,
+    textTransform: 'uppercase',
+    fontWeight: '800',
+    marginBottom: 2,
+    marginTop: 2,
+  },
   headerRow: {
     flexDirection: 'row',
     gap: 8,
     paddingTop: 4,
-    minHeight: 150,
+    minHeight: 160,
   },
   cornerCard: {
     flex: 1,
     backgroundColor: Mocha.bg1,
-    borderRadius: 16,
+    borderRadius: 24,
     padding: 12,
     borderWidth: 1,
     borderColor: Mocha.bg3,
@@ -465,7 +588,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 10,
     marginTop: 14,
     backgroundColor: Mocha.bg1,
-    borderRadius: 18,
+    borderRadius: 24,
     padding: 16,
     borderWidth: 1,
     borderColor: Mocha.bg3,
@@ -477,7 +600,7 @@ const styles = StyleSheet.create({
   primaryBtn: {
     backgroundColor: Mocha.blue,
     paddingVertical: 14,
-    borderRadius: 14,
+    borderRadius: 18,
     alignItems: 'center',
   },
   btnDisabled: { opacity: 0.5 },
@@ -496,7 +619,7 @@ const styles = StyleSheet.create({
   voteBtn: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    borderRadius: 12,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: Mocha.bg3,
     backgroundColor: Mocha.bg2,
@@ -511,7 +634,7 @@ const styles = StyleSheet.create({
     backgroundColor: Mocha.bg2,
     paddingVertical: 16,
     paddingHorizontal: 14,
-    borderRadius: 14,
+    borderRadius: 18,
     borderWidth: 1,
     borderColor: Mocha.blue,
     gap: 4,
@@ -525,8 +648,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: Mocha.bg3,
+    borderBottomWidth: 1,
+    borderBottomColor: `${Mocha.bg3}AA`,
     gap: 12,
   },
   modalHeaderTitles: { flex: 1, gap: 2 },
@@ -536,4 +659,40 @@ const styles = StyleSheet.create({
   modalDoneText: { color: Mocha.blue, fontSize: 16, fontWeight: '700' },
   modalScroll: { flex: 1 },
   modalScrollContent: { padding: 16, paddingBottom: 32, gap: 14 },
+  settingsBtn: {
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: Mocha.bg1,
+    borderWidth: 1,
+    borderColor: Mocha.bg3,
+    borderRadius: 18,
+    paddingVertical: 8,
+  },
+  settingsBtnText: { color: Mocha.fg1, fontSize: 11, fontWeight: '800' },
+  themeModalRoot: { flex: 1, justifyContent: 'flex-end' },
+  themeBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.42)' },
+  themeSheet: { backgroundColor: `${Mocha.bg1}EE`, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, gap: 10 },
+  themeTitle: { color: Mocha.rosewater, fontSize: 20, fontWeight: '800' },
+  themeSubtitle: { color: Mocha.fg3, fontSize: 12, marginBottom: 4 },
+  optionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Mocha.bg3,
+    borderRadius: 16,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  optionRowOn: { borderColor: Mocha.green, backgroundColor: `${Mocha.green}22` },
+  optionName: { flex: 1, color: Mocha.fg1, fontWeight: '700', fontSize: 13 },
+  optionValue: { color: Mocha.fg3, fontSize: 12, fontWeight: '700' },
+  themeGroupLabel: { color: Mocha.fg3, fontSize: 11, fontWeight: '700', textTransform: 'uppercase', marginTop: 2 },
+  themeRow: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: Mocha.bg3, borderRadius: 16, paddingHorizontal: 10, paddingVertical: 10 },
+  themeRowOn: { borderColor: Mocha.green, backgroundColor: `${Mocha.green}22` },
+  paletteRow: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, justifyContent: 'flex-end' },
+  themeSwatch: { width: 12, height: 12, borderRadius: 3 },
+  themeName: { width: 96, color: Mocha.fg1, fontWeight: '700', fontSize: 12 },
 });

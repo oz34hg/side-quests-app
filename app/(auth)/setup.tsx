@@ -4,30 +4,34 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CozyEnter } from '@/components/cozy-enter';
 import { Mocha } from '@/constants/mocha';
+import { useAppTheme } from '@/context/AppThemeContext';
 
 export default function SetupScreen() {
+  const { theme } = useAppTheme();
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <ScrollView contentContainerStyle={styles.container}>
+    <SafeAreaView style={[styles.safe, { backgroundColor: theme.background }]} edges={['top', 'bottom']}>
+      <ScrollView contentContainerStyle={[styles.container, { backgroundColor: theme.background }]}>
         <CozyEnter>
-        <Text style={styles.title}>Firebase not configured</Text>
-        <Text style={styles.p}>
+        <Text allowFontScaling={false} style={[styles.title, { color: theme.text }]}>
+          Firebase not configured
+        </Text>
+        <Text style={[styles.p, { color: theme.muted }]}>
           Create a Firebase project (Spark / free tier). Enable Authentication (Email/Password)
           and create a Firestore database plus Storage.
         </Text>
-        <Text style={styles.p}>
+        <Text style={[styles.p, { color: theme.muted }]}>
           In the project root, copy{' '}
           <Text style={styles.mono}>.env.example</Text> to <Text style={styles.mono}>.env</Text> and
           fill every <Text style={styles.mono}>EXPO_PUBLIC_FIREBASE_*</Text> value from your Firebase
           console.
         </Text>
-        <Text style={styles.p}>
+        <Text style={[styles.p, { color: theme.muted }]}>
           Deploy the rules in <Text style={styles.mono}>firebase/</Text> with the Firebase CLI (
           <Text style={styles.mono}>firebase deploy --only firestore:rules,storage</Text>
           ).
         </Text>
         <Link href="/(auth)/login" style={styles.link}>
-          <Text style={styles.linkText}>I have configured .env — go to sign in</Text>
+          <Text style={[styles.linkText, { color: theme.primary }]}>I have configured .env — go to sign in</Text>
         </Link>
         </CozyEnter>
       </ScrollView>
@@ -46,7 +50,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '800',
     color: Mocha.rosewater,
-    letterSpacing: 0.2,
+    letterSpacing: -0.5,
   },
   p: {
     color: Mocha.fg2,

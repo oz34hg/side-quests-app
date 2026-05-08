@@ -15,6 +15,21 @@ export type UserProfile = {
   username: string;
   displayName: string;
   photoURL: string | null;
+  bannerURL?: string | null;
+  profileBackgroundColor?: string | null;
+  aboutMe?: string;
+  statusLine?: string;
+  pronouns?: string;
+  pronounsCustomPart1?: string;
+  pronounsCustomPart2?: string;
+  badges?: string[];
+  createdAt?: unknown;
+  lastActiveGroupId?: string | null;
+  profileAccentColor?: string | null;
+  ownedStoreItems?: string[];
+  equippedBubbleEffect?: string | null;
+  equippedChatAnimation?: string | null;
+  equippedProfileFrame?: string | null;
 };
 
 type AuthContextValue = {
@@ -27,6 +42,20 @@ type AuthContextValue = {
   claimUsername: (username: string) => Promise<void>;
   updateDisplayName: (name: string) => Promise<void>;
   uploadProfilePhoto: (localUri: string) => Promise<void>;
+  uploadProfileBanner: (localUri: string) => Promise<void>;
+  updateProfileExtras: (patch: {
+    aboutMe?: string;
+    pronouns?: string;
+    pronounsCustomPart1?: string;
+    pronounsCustomPart2?: string;
+    profileBackgroundColor?: string | null;
+    statusLine?: string;
+    profileAccentColor?: string | null;
+    equippedBubbleEffect?: string | null;
+    equippedChatAnimation?: string | null;
+    equippedProfileFrame?: string | null;
+    ownedStoreItems?: string[];
+  }) => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -215,6 +244,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [refreshProfile],
   );
 
+  const uploadProfileBanner = useCallback(
+    async (localUri: string) => {
+      assertAuthDb();
+      if (!storage) throw new Error('Storage not configured.');
+      const cur = firebaseAuth!.currentUser;
+      if (!cur) throw new Error('Not signed in.');
+
+      const response = await fetch(localUri);
+      const blob = await response.blob();
+      const storageRef = ref(storage, `avatars/${cur.uid}/banner.jpg`);
+      await uploadBytes(storageRef, blob, { contentType: 'image/jpeg' });
+      const url = await getDownloadURL(storageRef);
+      await setDoc(doc(db!, 'users', cur.uid), { bannerURL: url }, { merge: true });
+      await refreshProfile();
+    },
+    [refreshProfile],
+  );
+
+  const updateProfileExtras = useCallback(
+    async (patch: {
+      aboutMe?: string;
+      pronouns?: string;
+      pronounsCustomPart1?: string;
+      pronounsCustomPart2?: string;
+      profileBackgroundColor?: string | null;
+      statusLine?: string;
+      profileAccentColor?: string | null;
+      equippedBubbleEffect?: string | null;
+      equippedChatAnimation?: string | null;
+      equippedProfileFrame?: string | null;
+      ownedStoreItems?: string[];
+    }) => {
+      assertAuthDb();
+      const cur = firebaseAuth!.currentUser;
+      if (!cur) throw new Error('Not signed in.');
+      const clean = Object.fromEntries(
+        Object.entries(patch).filter(([, v]) => v !== undefined),
+      ) as Record<string, unknown>;
+      if (Object.keys(clean).length === 0) return;
+      await setDoc(doc(db!, 'users', cur.uid), clean, { merge: true });
+      await refreshProfile();
+    },
+    [refreshProfile],
+  );
+
   const signOut = useCallback(async () => {
     if (!firebaseAuth) return;
     await firebaseSignOut(firebaseAuth);
@@ -231,6 +305,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       claimUsername,
       updateDisplayName,
       uploadProfilePhoto,
+      uploadProfileBanner,
+      updateProfileExtras,
       signOut,
       refreshProfile,
     }),
@@ -244,6 +320,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       claimUsername,
       updateDisplayName,
       uploadProfilePhoto,
+      uploadProfileBanner,
+      updateProfileExtras,
       signOut,
       refreshProfile,
     ],
